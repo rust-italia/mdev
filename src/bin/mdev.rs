@@ -1,3 +1,5 @@
+use tracing::{info, warn};
+
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
@@ -41,10 +43,40 @@ struct Opt {
 
 impl Opt {
     fn run_daemon(&self) -> anyhow::Result<()> {
+        info!("mdev daemon starts");
         unimplemented!()
     }
     fn run_scan(&self) -> anyhow::Result<()> {
+        info!("Scanning /sys and populating /dev");
         unimplemented!()
+    }
+
+    fn setup_log(&self) -> anyhow::Result<()> {
+        use tracing_subscriber::prelude::*;
+        use tracing_subscriber::{fmt, EnvFilter};
+
+        let fmt_layer = fmt::layer().with_target(false);
+
+        if self.syslog {
+            todo!("Wire in syslog somehow");
+        }
+
+        let filter_layer = EnvFilter::try_from_default_env()
+            .or_else(|_| {
+                if self.verbose {
+                    EnvFilter::try_new("info")
+                } else {
+                    EnvFilter::try_new("warn")
+                }
+            })
+            .unwrap();
+
+        tracing_subscriber::registry()
+            .with(filter_layer)
+            .with(fmt_layer)
+            .init();
+
+        Ok(())
     }
 }
 
@@ -58,6 +90,8 @@ fn main() -> anyhow::Result<()> {
     }
 
     let opt = Opt::from_args();
+
+    opt.setup_log()?;
 
     if opt.scan {
         opt.run_scan()?;
