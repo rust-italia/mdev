@@ -3,6 +3,8 @@ use tracing::{info, warn};
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
+use mdev_parser::Conf;
+
 #[derive(StructOpt)]
 #[structopt(
     setting = AppSettings::ColoredHelp,
@@ -42,11 +44,11 @@ struct Opt {
 }
 
 impl Opt {
-    fn run_daemon(&self) -> anyhow::Result<()> {
+    fn run_daemon(&self, _conf: &[Conf]) -> anyhow::Result<()> {
         info!("mdev daemon starts");
         unimplemented!()
     }
-    fn run_scan(&self) -> anyhow::Result<()> {
+    fn run_scan(&self, _conf: &[Conf]) -> anyhow::Result<()> {
         info!("Scanning /sys and populating /dev");
         unimplemented!()
     }
@@ -80,13 +82,18 @@ impl Opt {
     }
 }
 
-fn run_hotplug() -> anyhow::Result<()> {
+fn run_hotplug(_conf: &[Conf]) -> anyhow::Result<()> {
     unimplemented!()
 }
 
 fn main() -> anyhow::Result<()> {
+    let conf = {
+        let input = std::fs::read_to_string("/etc/mdev.conf")?;
+        mdev_parser::parse(&input)
+    };
+
     if std::env::args().count() == 0 {
-        return run_hotplug();
+        return run_hotplug(&conf);
     }
 
     let opt = Opt::from_args();
@@ -94,11 +101,11 @@ fn main() -> anyhow::Result<()> {
     opt.setup_log()?;
 
     if opt.scan {
-        opt.run_scan()?;
+        opt.run_scan(&conf)?;
     }
 
     if opt.daemon {
-        opt.run_daemon()?;
+        opt.run_daemon(&conf)?;
     }
 
     Ok(())
