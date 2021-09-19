@@ -1,0 +1,15 @@
+[package]
+name = "mdev"
+version = "0.1.0"
+edition = "2018"
+description = "mini-udev workalike"
+
+[dependencies]
+mdev-parser = "0.1"
+kobject-uevent = "0.1"
+anyhow = "1.0"
+structopt = "0.3"
+
+[patch.crates-io]
+mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }
+kobject-uevent = { git = "https://github.com/rust-italia/kobject-uevent" }
