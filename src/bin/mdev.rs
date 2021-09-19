@@ -39,6 +39,33 @@ struct Opt {
     foreground: bool,
 }
 
-fn main() {
+impl Opt {
+    fn run_daemon(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    fn run_scan(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+}
+
+fn run_hotplug() -> anyhow::Result<()> {
+    unimplemented!()
+}
+
+fn main() -> anyhow::Result<()> {
+    if std::env::args().count() == 0 {
+        return run_hotplug();
+    }
+
     let opt = Opt::from_args();
+
+    if opt.scan {
+        opt.run_scan()?;
+    }
+
+    if opt.daemon {
+        opt.run_daemon()?;
+    }
+
+    Ok(())
 }
