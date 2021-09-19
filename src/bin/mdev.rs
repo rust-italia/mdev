@@ -1,9 +1,15 @@
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+
+use kobject_uevent::ActionType;
 use tracing::{info, warn};
 
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
-use mdev_parser::Conf;
+use mdev_parser::{Conf, Filter, MajMin};
 
 #[derive(StructOpt)]
 #[structopt(
@@ -41,6 +47,99 @@ struct Opt {
     /// Stay in foreground when in daemon mode
     #[structopt(short, long)]
     foreground: bool,
+    /// Path to the dev to populate (useful for debugging and testing)
+    #[structopt(long, default_value = "/dev", parse(from_os_str))]
+    devpath: PathBuf,
+}
+
+fn react_to_event(
+    path: &Path,
+    env: &HashMap<String, String>,
+    action: ActionType,
+    conf: &[Conf],
+    devpath: &Path,
+) -> anyhow::Result<()> {
+    let dev = std::fs::read_to_string(&path.join("dev"));
+    let uevent = std::fs::read_to_string(&path.join("uevent"));
+
+    let devname = if let Some(devname) = env.get("DEVNAME") {
+        devname
+    } else {
+        if let Ok(ref uevent) = uevent {
+            uevent.lines().find_map(|line| {
+                if let Some((k, v)) = line.split_once("=") {
+                    if k == "DEVNAME" {
+                        Some(v)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        }
+        .unwrap_or_else(|| path.file_name().unwrap().to_str().unwrap())
+    };
+
+    let device_number = if let Ok(ref dev) = dev {
+        if let Some((maj, min)) = dev.split_once(":") {
+            Some((maj.parse::<u8>()?, min.parse::<u8>()?))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    for rule in conf {
+        if !rule.envmatches.iter().all(|env_match| {
+            env.get(&env_match.envvar)
+                .map(|var| env_match.regex.is_match(var))
+                .unwrap_or(false)
+        }) {
+            continue;
+        }
+
+        match rule.filter {
+            Filter::MajMin(ref device_number_match) => {
+                if let Some((maj, min)) = device_number {
+                    if maj != device_number_match.maj {
+                        continue;
+                    }
+                    let min2 = device_number_match.min2.unwrap_or(device_number_match.min);
+                    if min < device_number_match.min || min > min2 {
+                        continue;
+                    }
+                }
+            }
+            Filter::DeviceRegex(ref device_regex) => {
+                let var = if let Some(ref envvar) = device_regex.envvar {
+                    if let Some(var) = env.get(envvar) {
+                        var
+                    } else {
+                        continue;
+                    }
+                } else {
+                    devname
+                };
+                if !device_regex.regex.is_match(var) {
+                    continue;
+                }
+            }
+        }
+
+        info!("rule matched {:?}", rule);
+
+        // TODO: actual actions
+
+        if rule.stop {
+            break;
+        }
+    }
+
+    todo!()
 }
 
 impl Opt {
