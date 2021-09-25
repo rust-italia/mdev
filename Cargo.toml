@@ -11,6 +11,8 @@ anyhow = "1.0"
 structopt = "0.3"
 tracing = "0.1"
 tracing-subscriber = "0.2"
+netlink-sys = { version = "0.7", features = ["tokio_socket"] }
+futures-util = "0.3"
 
 [patch.crates-io]
 mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }
