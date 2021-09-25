@@ -13,7 +13,6 @@ tracing = "0.1"
 tracing-subscriber = "0.2"
 netlink-proto = { version = "0.7", features = ["tokio_socket"] }
 futures-util = "0.3"
-tokio = { version = "1", features = ["rt"] }
 
 [patch.crates-io]
 mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }
