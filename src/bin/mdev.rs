@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use kobject_uevent::ActionType;
@@ -9,7 +7,7 @@ use tracing::{info, warn};
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
-use mdev_parser::{Conf, Filter, MajMin};
+use mdev_parser::{Conf, Filter};
 
 #[derive(StructOpt)]
 #[structopt(
