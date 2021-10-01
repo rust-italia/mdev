@@ -11,7 +11,7 @@ use structopt::StructOpt;
 use futures_util::{future, StreamExt};
 use walkdir::WalkDir;
 
-use mdev_parser::{Conf, Filter};
+use mdev_parser::{Conf, Filter, OnCreation};
 
 #[derive(StructOpt)]
 #[structopt(
@@ -132,7 +132,21 @@ fn react_to_event(
             }
         }
 
-        info!("rule matched {:?}", rule);
+        info!("rule matched {:?} action {:?}", rule, action);
+
+        if let Some(ref creation) = rule.on_creation {
+            match creation {
+                OnCreation::Move(to) => {}
+                OnCreation::SymLink(to) => {}
+                OnCreation::Prevent => {}
+            }
+        }
+
+        match action {
+            ActionType::Add => {}
+            ActionType::Remove => {}
+            _ => info!("Action {:?}", action),
+        }
 
         // TODO: actual actions
 
