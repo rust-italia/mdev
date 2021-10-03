@@ -1,15 +1,16 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use fork::{daemon, Fork};
 use kobject_uevent::ActionType;
 use tracing::{info, warn};
 
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
-use mdev_parser::{Conf, Filter, MajMin};
+use futures_util::{future, StreamExt};
+
+use mdev_parser::{Conf, Filter};
 
 #[derive(StructOpt)]
 #[structopt(
@@ -139,13 +140,25 @@ fn react_to_event(
         }
     }
 
-    todo!()
+    Ok(())
 }
 
 impl Opt {
-    fn run_daemon(&self, _conf: &[Conf]) -> anyhow::Result<()> {
+    #[tokio::main]
+    async fn run_daemon(&self, conf: &[Conf]) -> anyhow::Result<()> {
         info!("mdev daemon starts");
-        unimplemented!()
+        let fut = mdev::stream::uevents()?.for_each(|ev| {
+            info!("event {:?}", ev);
+            if let Err(e) = ev
+                .and_then(|ev| react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath))
+            {
+                warn!("{}", e);
+            }
+            future::ready(())
+        });
+        fut.await;
+
+        Ok(())
     }
     fn run_scan(&self, _conf: &[Conf]) -> anyhow::Result<()> {
         info!("Scanning /sys and populating /dev");
@@ -155,6 +168,10 @@ impl Opt {
     fn setup_log(&self) -> anyhow::Result<()> {
         use tracing_subscriber::prelude::*;
         use tracing_subscriber::{fmt, EnvFilter};
+
+        if self.daemon && !self.foreground && !self.syslog {
+            return Ok(());
+        }
 
         let fmt_layer = fmt::layer().with_target(false);
 
@@ -204,7 +221,14 @@ fn main() -> anyhow::Result<()> {
     }
 
     if opt.daemon {
-        opt.run_daemon(&conf)?;
+        if !opt.foreground {
+            match daemon(false, false).map_err(|_| anyhow::anyhow!("Cannot fork"))? {
+                Fork::Child => opt.run_daemon(&conf)?,
+                _ => {}
+            }
+        } else {
+            opt.run_daemon(&conf)?;
+        }
     }
 
     Ok(())
