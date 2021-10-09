@@ -15,6 +15,7 @@ netlink-sys = { version = "0.7", features = ["tokio_socket"] }
 futures-util = "0.3"
 tokio = { version = "1.12", features = ["macros", "rt-multi-thread"] }
 fork = "0.1"
+walkdir = "2"
 
 [patch.crates-io]
 mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }

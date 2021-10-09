@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use fork::{daemon, Fork};
-use kobject_uevent::ActionType;
+use kobject_uevent::{ActionType, UEvent};
 use tracing::{info, warn};
 
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
 use futures_util::{future, StreamExt};
+use walkdir::WalkDir;
 
 use mdev_parser::{Conf, Filter};
 
@@ -160,9 +161,57 @@ impl Opt {
 
         Ok(())
     }
-    fn run_scan(&self, _conf: &[Conf]) -> anyhow::Result<()> {
-        info!("Scanning /sys and populating /dev");
-        unimplemented!()
+    fn run_scan(&self, _conf: &[Conf]) -> anyhow::Result<Vec<UEvent>> {
+        let mut uevents = Vec::new();
+        for entry in WalkDir::new("/sys") {
+            if entry.is_err() {
+                continue;
+            }
+            let e = entry?;
+            if let Some(_) = e.path().file_name().filter(|&name| name.eq("dev")) {
+                println!("{}", e.path().display());
+
+                let mut uevent_path = e.path().to_owned();
+                uevent_path.pop();
+                uevent_path.push("uevent");
+                let content = std::fs::read_to_string(&uevent_path);
+                if content.is_err() {
+                    println!("{}", uevent_path.display());
+                    continue;
+                }
+                let c = content.unwrap();
+                let rows = c.split('\n');
+                let mut env = HashMap::new();
+                for r in rows {
+                    if let Some((key, value)) = r.split_once('=') {
+                        match key {
+                            "ACTION" => "add",
+                            "DEVMODE" => value,
+                            _ => r#""#,
+                        };
+                        let _ = env.insert(key.into(), value.into());
+                    }
+                }
+
+                let mut ss = e.path().to_owned();
+                ss.pop();
+                let subsystem = ss.file_stem().unwrap().to_str().unwrap().to_string();
+                let mut path = e.path().to_owned();
+                path.pop();
+
+                let mut path = e.path().to_owned();
+                path.pop();
+                uevents.push(UEvent {
+                    action: ActionType::Add,
+                    devpath: path,
+                    subsystem,
+                    env,
+                    seq: 0,
+                })
+            }
+        }
+
+        Ok(uevents)
     }
 
     fn setup_log(&self) -> anyhow::Result<()> {
@@ -217,7 +266,8 @@ fn main() -> anyhow::Result<()> {
     opt.setup_log()?;
 
     if opt.scan {
-        opt.run_scan(&conf)?;
+        let uevents = opt.run_scan(&conf)?;
+        println!("scan {} number of uevents", uevents.len());
     }
 
     if opt.daemon {
