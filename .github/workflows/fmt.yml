@@ -1,0 +1,13 @@
+name: fmt
+
+on: [pull_request]
+
+jobs:
+  fmt:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: fmt
+      run: cargo fmt -- --check
