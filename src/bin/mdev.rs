@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
@@ -162,21 +162,22 @@ impl Opt {
         Ok(())
     }
     fn run_scan(&self, _conf: &[Conf]) -> anyhow::Result<Vec<UEvent>> {
+        let mut total_seq = 0;
         let mut uevents = Vec::new();
-        for entry in WalkDir::new("/sys") {
+        for entry in WalkDir::new("/sys/dev") {
             if entry.is_err() {
                 continue;
             }
             let e = entry?;
             if let Some(_) = e.path().file_name().filter(|&name| name.eq("dev")) {
-                println!("{}", e.path().display());
+                debug!("{}", e.path().display());
 
                 let mut uevent_path = e.path().to_owned();
                 uevent_path.pop();
                 uevent_path.push("uevent");
                 let content = std::fs::read_to_string(&uevent_path);
                 if content.is_err() {
-                    println!("{}", uevent_path.display());
+                    warn!("content error in {}", uevent_path.display());
                     continue;
                 }
                 let c = content.unwrap();
@@ -184,11 +185,6 @@ impl Opt {
                 let mut env = HashMap::new();
                 for r in rows {
                     if let Some((key, value)) = r.split_once('=') {
-                        match key {
-                            "ACTION" => "add",
-                            "DEVMODE" => value,
-                            _ => r#""#,
-                        };
                         let _ = env.insert(key.into(), value.into());
                     }
                 }
@@ -206,9 +202,10 @@ impl Opt {
                     devpath: path,
                     subsystem,
                     env,
-                    seq: 0,
+                    seq: total_seq,
                 })
             }
+            total_seq += 1;
         }
 
         Ok(uevents)
@@ -267,7 +264,7 @@ fn main() -> anyhow::Result<()> {
 
     if opt.scan {
         let uevents = opt.run_scan(&conf)?;
-        println!("scan {} number of uevents", uevents.len());
+        info!("scan {} number of uevents", uevents.len());
     }
 
     if opt.daemon {
