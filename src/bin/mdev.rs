@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
+use nix::sys::stat::{makedev, mknod, Mode, SFlag};
+use nix::unistd::unlink;
 use tracing::{debug, info, warn};
 
 use structopt::clap::AppSettings;
@@ -61,8 +64,9 @@ fn react_to_event(
     conf: &[Conf],
     devpath: &Path,
 ) -> anyhow::Result<()> {
-    let dev = std::fs::read_to_string(&path.join("dev"));
-    let uevent = std::fs::read_to_string(&path.join("uevent"));
+    let in_sys = Path::new("/sys").join(path.strip_prefix("/")?);
+    let dev = std::fs::read_to_string(&in_sys.join("dev"));
+    let uevent = std::fs::read_to_string(&in_sys.join("uevent"));
 
     let devname = if let Some(devname) = env.get("DEVNAME") {
         devname
@@ -86,7 +90,7 @@ fn react_to_event(
     };
 
     let device_number = if let Ok(ref dev) = dev {
-        if let Some((maj, min)) = dev.split_once(":") {
+        if let Some((maj, min)) = dev.trim().split_once(":") {
             Some((maj.parse::<u8>()?, min.parse::<u8>()?))
         } else {
             None
@@ -136,15 +140,45 @@ fn react_to_event(
 
         if let Some(ref creation) = rule.on_creation {
             match creation {
-                OnCreation::Move(to) => {}
-                OnCreation::SymLink(to) => {}
-                OnCreation::Prevent => {}
+                OnCreation::Move(to) => {
+                    warn!("TODO: Rename {} to {}", devname, to)
+                }
+                OnCreation::SymLink(to) => {
+                    warn!("TODO: Link {} to {}", devname, to)
+                }
+                OnCreation::Prevent => {
+                    warn!("Do not create node")
+                }
             }
         }
 
+        let dev_full_path = devpath.join(devname);
+        let dev_full_dir = dev_full_path.parent().unwrap();
+
         match action {
-            ActionType::Add => {}
-            ActionType::Remove => {}
+            ActionType::Add => {
+                if let Some((maj, min)) = device_number {
+                    std::fs::create_dir_all(dev_full_dir)?;
+                    let kind = if path.iter().any(|v| v == OsStr::new("block")) {
+                        SFlag::S_IFBLK
+                    } else {
+                        SFlag::S_IFCHR
+                    };
+                    let mode =
+                        Mode::from_bits(rule.mode).or_else(|| anyhow::anyhow!("Invalid mode"))?;
+                    let dev = makedev(maj.into(), min.into());
+
+                    info!(
+                        "Creating {:?} {:?} {:?} {:?}",
+                        dev_full_path, kind, mode, dev
+                    );
+                    mknod(&dev_full_path, kind, mode, dev)?;
+                }
+            }
+            ActionType::Remove => {
+                info!("Removing {:?}", dev_full_path);
+                unlink(&dev_full_path)?;
+            }
             _ => info!("Action {:?}", action),
         }
 
