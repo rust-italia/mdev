@@ -6,14 +6,16 @@ use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::unistd::unlink;
+use tokio::join;
 use tracing::{debug, info, warn};
 
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
 
-use futures_util::{future, StreamExt};
+use futures_util::StreamExt;
 use walkdir::WalkDir;
 
+use mdev::{RebroadcastMessage, Rebroadcaster};
 use mdev_parser::{Conf, Filter, OnCreation};
 
 #[derive(StructOpt)]
@@ -55,6 +57,9 @@ struct Opt {
     /// Path to the dev to populate (useful for debugging and testing)
     #[structopt(long, default_value = "/dev", parse(from_os_str))]
     devpath: PathBuf,
+    /// Rebroadcast events to 0x4 netlink group
+    #[structopt(long, short)]
+    rebroadcast: bool,
 }
 
 fn react_to_event(
@@ -164,8 +169,8 @@ fn react_to_event(
                     } else {
                         SFlag::S_IFCHR
                     };
-                    let mode =
-                        Mode::from_bits(rule.mode).or_else(|| anyhow::anyhow!("Invalid mode"))?;
+                    let mode = Mode::from_bits(rule.mode)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid mode"))?;
                     let dev = makedev(maj.into(), min.into());
 
                     info!(
@@ -196,18 +201,57 @@ impl Opt {
     #[tokio::main]
     async fn run_daemon(&self, conf: &[Conf]) -> anyhow::Result<()> {
         info!("mdev daemon starts");
-        let fut = mdev::stream::uevents()?.for_each(|ev| {
-            info!("event {:?}", ev);
-            if let Err(e) = ev
-                .and_then(|ev| react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath))
-            {
-                warn!("{}", e);
-            }
-            future::ready(())
-        });
-        fut.await;
 
-        Ok(())
+        // Waiting for `Option::unzip` or try_blocks
+        let (rebroadcaster, rebroadcast_sender) = match self
+            .rebroadcast
+            .then(|| Rebroadcaster::new(16))
+            .transpose()?
+        {
+            Some((rebroadcaster, sender)) => (Some(rebroadcaster), Some(sender)),
+            None => (None, None),
+        };
+
+        let reactor_fut = async {
+            mdev::stream::uevents()?
+                .for_each(|ev| async {
+                    info!("event {:?}", ev);
+                    let result = ev.map(|ev| async {
+                        let result =
+                            react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath);
+                        if let Some(rebroadcast_sender) = &rebroadcast_sender {
+                            if rebroadcast_sender
+                                .send(RebroadcastMessage::Event(ev))
+                                .await
+                                .is_err()
+                            {
+                                panic!("rebroadcaster channel is closed");
+                            }
+                        }
+                        result
+                    });
+                    if let Err(e) = result {
+                        warn!("{}", e);
+                    }
+                })
+                .await;
+
+            if let Some(rebroadcast_sender) = &rebroadcast_sender {
+                if rebroadcast_sender
+                    .send(RebroadcastMessage::Stop)
+                    .await
+                    .is_err()
+                {
+                    panic!("rebroadcaster channel is closed");
+                }
+            }
+            Ok(())
+        };
+
+        match rebroadcaster {
+            Some(rebroadcaster) => join!(reactor_fut, rebroadcaster).0,
+            None => reactor_fut.await,
+        }
     }
     fn run_scan(&self, _conf: &[Conf]) -> anyhow::Result<Vec<UEvent>> {
         let mut total_seq = 0;
