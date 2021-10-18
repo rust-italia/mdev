@@ -13,7 +13,7 @@ tracing = "0.1"
 tracing-subscriber = "0.2"
 netlink-sys = { version = "0.7", features = ["tokio_socket"] }
 futures-util = "0.3"
-tokio = { version = "1.12", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.12", features = ["macros", "rt-multi-thread", "sync"] }
 fork = "0.1"
 walkdir = "2"
 nix = "0.20"
