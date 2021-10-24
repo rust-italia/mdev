@@ -361,9 +361,8 @@ fn main() -> anyhow::Result<()> {
 
     if opt.daemon {
         if !opt.foreground {
-            match daemon(false, false).map_err(|_| anyhow::anyhow!("Cannot fork"))? {
-                Fork::Child => opt.run_daemon(&conf)?,
-                _ => {}
+            if let Fork::Child = daemon(false, false).map_err(|_| anyhow::anyhow!("Cannot fork"))? {
+                opt.run_daemon(&conf)?
             }
         } else {
             opt.run_daemon(&conf)?;
