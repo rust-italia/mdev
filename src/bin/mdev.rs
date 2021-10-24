@@ -254,50 +254,39 @@ impl Opt {
         }
     }
     fn run_scan(&self, _conf: &[Conf]) -> anyhow::Result<Vec<UEvent>> {
-        let mut total_seq = 0;
+        let mount_point = Path::new("/sys");
         let mut uevents = Vec::new();
-        for entry in WalkDir::new("/sys/dev") {
-            if entry.is_err() {
-                continue;
-            }
-            let e = entry?;
-            if let Some(_) = e.path().file_name().filter(|&name| name.eq("dev")) {
-                debug!("{}", e.path().display());
+        let walk = WalkDir::new(mount_point.join("dev"))
+            .follow_links(true)
+            .max_depth(3)
+            .into_iter();
 
-                let mut uevent_path = e.path().to_owned();
-                uevent_path.pop();
-                uevent_path.push("uevent");
-                let content = std::fs::read_to_string(&uevent_path);
-                if content.is_err() {
-                    warn!("content error in {}", uevent_path.display());
-                    continue;
-                }
-                let c = content.unwrap();
-                let rows = c.split('\n');
-                let mut env = HashMap::new();
-                for r in rows {
-                    if let Some((key, value)) = r.split_once('=') {
-                        let _ = env.insert(key.into(), value.into());
+        for (seq, e) in walk
+            .filter_map(|p| {
+                if let Ok(p) = p {
+                    if p.file_name() == "dev" && p.depth() != 0 {
+                        Some(p)
+                    } else {
+                        None
                     }
+                } else {
+                    None
                 }
+            })
+            .enumerate()
+        {
+            let path = e
+                .path()
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("Scanning an impossible path {:?}", e.path()))?;
+            debug!("{:?}", path);
 
-                let mut ss = e.path().to_owned();
-                ss.pop();
-                let subsystem = ss.file_stem().unwrap().to_str().unwrap().to_string();
-                let mut path = e.path().to_owned();
-                path.pop();
+            let mut uevent = UEvent::from_sysfs_path(path, &mount_point)?;
+            uevent.seq = seq as u64;
 
-                let mut path = e.path().to_owned();
-                path.pop();
-                uevents.push(UEvent {
-                    action: ActionType::Add,
-                    devpath: path,
-                    subsystem,
-                    env,
-                    seq: total_seq,
-                })
-            }
-            total_seq += 1;
+            info!("{:#?}", uevent);
+
+            uevents.push(uevent);
         }
 
         Ok(uevents)
