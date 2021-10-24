@@ -341,9 +341,10 @@ fn run_hotplug(_conf: &[Conf]) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let conf = {
-        let input = std::fs::read_to_string("/etc/mdev.conf")?;
+    let conf = if let Ok(input) = std::fs::read_to_string("/etc/mdev.conf") {
         mdev_parser::parse(&input)
+    } else {
+        Default::default()
     };
 
     if std::env::args().count() == 0 {
