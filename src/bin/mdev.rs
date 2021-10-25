@@ -40,8 +40,8 @@ If /dev/mdev.log file exists, debug log will be appended to it.
 )]
 struct Opt {
     /// Verbose mode, logs to stderr
-    #[structopt(short, long)]
-    verbose: bool,
+    #[structopt(short, long, parse(from_occurrences))]
+    verbose: u8,
     /// Log to syslog as well
     #[structopt(short = "S", long)]
     syslog: bool,
@@ -308,10 +308,12 @@ impl Opt {
 
         let filter_layer = EnvFilter::try_from_default_env()
             .or_else(|_| {
-                if self.verbose {
+                if self.verbose < 1 {
                     EnvFilter::try_new("info")
-                } else {
+                } else if self.verbose < 2 {
                     EnvFilter::try_new("warn")
+                } else {
+                    EnvFilter::try_new("debug")
                 }
             })
             .unwrap();
