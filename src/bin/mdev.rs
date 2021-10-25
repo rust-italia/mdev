@@ -96,7 +96,7 @@ fn react_to_event(
 
     let device_number = if let Ok(ref dev) = dev {
         if let Some((maj, min)) = dev.trim().split_once(":") {
-            Some((maj.parse::<u8>()?, min.parse::<u8>()?))
+            Some((maj.parse::<u32>()?, min.parse::<u32>()?))
         } else {
             None
         }
@@ -253,43 +253,36 @@ impl Opt {
             None => reactor_fut.await,
         }
     }
-    fn run_scan(&self, _conf: &[Conf]) -> anyhow::Result<Vec<UEvent>> {
+    fn run_scan(&self, conf: &[Conf]) -> anyhow::Result<()> {
         let mount_point = Path::new("/sys");
-        let mut uevents = Vec::new();
         let walk = WalkDir::new(mount_point.join("dev"))
             .follow_links(true)
             .max_depth(3)
             .into_iter();
 
-        for (seq, e) in walk
-            .filter_map(|p| {
-                if let Ok(p) = p {
-                    if p.file_name() == "dev" && p.depth() != 0 {
-                        Some(p)
-                    } else {
-                        None
-                    }
+        for e in walk.filter_map(|p| {
+            if let Ok(p) = p {
+                if p.file_name() == "dev" && p.depth() != 0 {
+                    Some(p)
                 } else {
                     None
                 }
-            })
-            .enumerate()
-        {
+            } else {
+                None
+            }
+        }) {
             let path = e
                 .path()
                 .parent()
                 .ok_or_else(|| anyhow::anyhow!("Scanning an impossible path {:?}", e.path()))?;
             debug!("{:?}", path);
 
-            let mut uevent = UEvent::from_sysfs_path(path, &mount_point)?;
-            uevent.seq = seq as u64;
+            let ev = UEvent::from_sysfs_path(path, &mount_point)?;
 
-            info!("{:#?}", uevent);
-
-            uevents.push(uevent);
+            react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath)?;
         }
 
-        Ok(uevents)
+        Ok(())
     }
 
     fn setup_log(&self) -> anyhow::Result<()> {
@@ -347,8 +340,7 @@ fn main() -> anyhow::Result<()> {
     opt.setup_log()?;
 
     if opt.scan {
-        let uevents = opt.run_scan(&conf)?;
-        info!("scan {} number of uevents", uevents.len());
+        opt.run_scan(&conf)?;
     }
 
     if opt.daemon {
