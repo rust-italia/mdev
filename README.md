@@ -6,12 +6,11 @@ mdev daemon workalike, written in pure rust
 ## Structure and components
 Any uevent manager daemon has 4 primary components:
 - [x] A netlink listener, in our case [netlink-sys](https://crates.io/crates/netlink-sys) provides us already some level of abstraction
-  - [ ] We might make an additional crate to abstract further so we can reason only about the events.
 - [x] Something that [parses](https://github.com/rust-italia/kobject-uevent) the messages encoded in the netlink packets
 - [x] A set of rules on how to react to the events, we use the same [mdev.conf format](https://github.com/rust-italia/mdev-parser)
-- [ ] The actual code that reacts to the events according to the rules
-  - [ ] It matchs events with rules
-  - [ ] It execute the actual action and make sure to log the results of it
+- [x] The actual code that reacts to the events according to the rules
+  - [x] It matches events with rules
+  - [] It executes the actual action and make sure to log the results of it
 
 ```
 ┌─────────┐                 ┌───────────┐
