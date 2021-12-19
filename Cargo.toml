@@ -6,17 +6,17 @@ description = "mini-udev workalike"
 
 [dependencies]
 mdev-parser = "0.1"
-kobject-uevent = "0.1"
-anyhow = "1.0"
-structopt = "0.3"
-tracing = "0.1"
-tracing-subscriber = "0.2"
-netlink-sys = { version = "0.7", features = ["tokio_socket"] }
-futures-util = "0.3"
-tokio = { version = "1.12", features = ["macros", "rt-multi-thread", "sync"] }
-fork = "0.1"
-walkdir = "2"
-nix = "0.20"
+kobject-uevent = "0.1.0"
+anyhow = "1.0.53"
+structopt = "0.3.26"
+tracing = "0.1.30"
+tracing-subscriber = { version = "0.3.8", features = ["env-filter"] }
+netlink-sys = { version = "0.7.0", features = ["tokio_socket"] }#0.8.1 seems to be buggy
+futures-util = "0.3.21"
+tokio = { version = "1.16.1", features = ["macros", "rt-multi-thread", "sync"] }
+fork = "0.1.18"
+walkdir = "2.3.2"
+nix = "0.23.1"
 
 [patch.crates-io]
 mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }
