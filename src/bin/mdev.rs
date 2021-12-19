@@ -4,7 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{create_dir_all, rename};
 use std::os::unix::fs::symlink;
 use std::os::unix::prelude::OsStrExt;
-use std::path::{Path, PathBuf, Component};
+use std::path::{Component, Path, PathBuf};
 
 use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
@@ -118,7 +118,8 @@ fn react_to_event(
         }
 
         // to avoid unneeded allocations
-        let mut on_creation: Option<Cow<OnCreation>> = rule.on_creation.as_ref().map(|t| Cow::Borrowed(t));
+        let mut on_creation: Option<Cow<OnCreation>> =
+            rule.on_creation.as_ref().map(|t| Cow::Borrowed(t));
 
         match rule.filter {
             Filter::MajMin(ref device_number_match) => {
@@ -147,11 +148,11 @@ fn react_to_event(
                     // because is lighter and quicker having matches already indexed
                     // than converting to usize every OsStr that starts by %
                     // the counterpart is that we allocate every match instead of keeping the reference to the original str
-                    let matches: HashMap<OsString, OsString> = device_regex.regex.find_iter(var)
+                    let matches: HashMap<OsString, OsString> = device_regex
+                        .regex
+                        .find_iter(var)
                         .enumerate()
-                        .map(|(index, m)| {
-                            (format!("%{}", index).into(), m.as_str().into())
-                        })
+                        .map(|(index, m)| (format!("%{}", index).into(), m.as_str().into()))
                         .collect();
                     if matches.is_empty() {
                         continue;
@@ -161,15 +162,14 @@ fn react_to_event(
                     match &mut new_on_creation {
                         OnCreation::Move(pb) => {
                             *pb = replace_in_pathbuf(pb, &matches);
-                        },
+                        }
                         OnCreation::SymLink(pb) => {
                             *pb = replace_in_pathbuf(pb, &matches);
-                        },
-                        _ => {},
+                        }
+                        _ => {}
                     }
                     on_creation = Some(Cow::Owned(new_on_creation));
-                }
-                else {
+                } else {
                     if !device_regex.regex.is_match(var) {
                         continue;
                     }
@@ -186,8 +186,7 @@ fn react_to_event(
                     debug!("Rename {} to {}", devname, to.display());
                     let (dir, target) = if is_dir(to) {
                         (to.as_path(), to.join(devname))
-                    }
-                    else {
+                    } else {
                         // not sure about using "" as fallback
                         (to.parent().unwrap_or_else(|| Path::new("")), to.clone())
                     };
@@ -198,8 +197,7 @@ fn react_to_event(
                     debug!("Link {} to {}", devname, to.display());
                     let (dir, target) = if is_dir(to) {
                         (to.as_path(), to.join(devname))
-                    }
-                    else {
+                    } else {
                         // not sure about using "" as fallback
                         (to.parent().unwrap_or_else(|| Path::new("")), to.clone())
                     };
@@ -377,9 +375,7 @@ impl Opt {
 }
 
 fn is_dir(path: &PathBuf) -> bool {
-    path.as_os_str()
-        .as_bytes()
-        .ends_with(&[b'/'])
+    path.as_os_str().as_bytes().ends_with(&[b'/'])
 }
 
 fn replace_in_pathbuf(pb: &PathBuf, matches: &HashMap<OsString, OsString>) -> PathBuf {
