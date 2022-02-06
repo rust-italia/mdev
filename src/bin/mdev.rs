@@ -1,6 +1,9 @@
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::fs::{create_dir_all, rename};
+use std::os::unix::fs::symlink;
+use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 
 use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
@@ -113,6 +116,10 @@ fn react_to_event(
             continue;
         }
 
+        // to avoid unneeded allocations
+        let mut on_creation: Option<Cow<OnCreation>> =
+            rule.on_creation.as_ref().map(|t| Cow::Borrowed(t));
+
         match rule.filter {
             Filter::MajMin(ref device_number_match) => {
                 if let Some((maj, min)) = device_number {
@@ -135,24 +142,90 @@ fn react_to_event(
                 } else {
                     devname
                 };
-                if !device_regex.regex.is_match(var) {
-                    continue;
+                if let Some(old_on_creation) = on_creation {
+                    // this creates a sorted collection of usize:(String:String)
+                    // because is lighter and quicker having matches already indexed
+                    // than converting to usize every substring that starts by % and contains numbers
+                    // the counterpart is that we allocate every match instead of keeping the reference to the original str
+                    let matches: BTreeMap<usize, (String, &str)> = device_regex
+                        .regex
+                        .find_iter(var)
+                        .enumerate()
+                        .map(|(index, m)| (index, (format!("%{}", index), m.as_str())))
+                        .collect();
+                    if matches.is_empty() {
+                        continue;
+                    }
+
+                    let mut new_on_creation = old_on_creation.into_owned();
+                    match &mut new_on_creation {
+                        OnCreation::Move(pb) => {
+                            replace_in_path(pb, &matches);
+                        }
+                        OnCreation::SymLink(pb) => {
+                            replace_in_path(pb, &matches);
+                        }
+                        _ => {}
+                    }
+                    on_creation = Some(Cow::Owned(new_on_creation));
+                } else {
+                    if !device_regex.regex.is_match(var) {
+                        continue;
+                    }
                 }
             }
         }
 
         info!("rule matched {:?} action {:?}", rule, action);
 
-        if let Some(ref creation) = rule.on_creation {
+        // WARNING: WIP code
+        if let Some(creation) = on_creation.as_deref() {
             match creation {
                 OnCreation::Move(to) => {
-                    warn!("TODO: Rename {} to {}", devname, to)
+                    debug!("Rename {} to {}", devname, to);
+                    let (dir, target) = if is_dir(to) {
+                        (to.clone(), format!("{}{}", to, devname))
+                    } else {
+                        let nsep = to.chars().filter(|c| *c == MAIN_SEPARATOR).count();
+                        let mut n = 0;
+                        let parent = to
+                            .chars()
+                            .take_while(|c| {
+                                if *c == MAIN_SEPARATOR {
+                                    n += 1;
+                                }
+                                n < nsep
+                            })
+                            .collect();
+                        (parent, to.clone())
+                    };
+                    create_dir_all(devpath.join(dir))?;
+                    rename(devpath.join(devname), devpath.join(target))?;
                 }
                 OnCreation::SymLink(to) => {
-                    warn!("TODO: Link {} to {}", devname, to)
+                    debug!("Link {} to {}", devname, to);
+                    let (dir, target) = if is_dir(to) {
+                        (to.clone(), format!("{}{}", to, devname))
+                    } else {
+                        let nsep = to.chars().filter(|c| *c == MAIN_SEPARATOR).count();
+                        let mut n = 0;
+                        let parent = to
+                            .chars()
+                            .take_while(|c| {
+                                if *c == MAIN_SEPARATOR {
+                                    n += 1;
+                                }
+                                n < nsep
+                            })
+                            .collect();
+                        (parent, to.clone())
+                    };
+                    create_dir_all(devpath.join(dir))?;
+                    symlink(devpath.join(devname), devpath.join(target))?;
                 }
                 OnCreation::Prevent => {
-                    warn!("Do not create node")
+                    debug!("Do not create node");
+                    continue;
                 }
             }
         }
@@ -163,7 +236,7 @@ fn react_to_event(
         match action {
             ActionType::Add => {
                 if let Some((maj, min)) = device_number {
-                    std::fs::create_dir_all(dev_full_dir)?;
+                    create_dir_all(dev_full_dir)?;
                     let kind = if path.iter().any(|v| v == OsStr::new("block")) {
                         SFlag::S_IFBLK
                     } else {
@@ -198,7 +271,7 @@ fn react_to_event(
 }
 
 impl Opt {
-    #[tokio::main(flavor = "current_thread")]
+    #[tokio::main]
     async fn run_daemon(&self, conf: &[Conf]) -> anyhow::Result<()> {
         info!("mdev daemon starts");
 
@@ -317,6 +390,21 @@ impl Opt {
             .init();
 
         Ok(())
+    }
+}
+
+fn is_dir(path: &str) -> bool {
+    // is this check enough?
+    path.ends_with(MAIN_SEPARATOR)
+}
+
+fn replace_in_path(pb: &mut String, matches: &BTreeMap<usize, (String, &str)>) {
+    // reverse iteration to go from highest number to lowest, therefore from longhest to shortest
+    // this way we replace %10 before %1
+    for (_, (key, value)) in matches.iter().rev() {
+        while let Some(pos) = pb.find(key) {
+            pb.replace_range(pos..(pos + key.len()), value);
+        }
     }
 }
 
