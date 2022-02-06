@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::fs::{create_dir_all, rename};
 use std::os::unix::fs::symlink;
@@ -188,7 +188,8 @@ fn react_to_event(
                     } else {
                         let nsep = to.chars().filter(|c| *c == MAIN_SEPARATOR).count();
                         let mut n = 0;
-                        let parent = to.chars()
+                        let parent = to
+                            .chars()
                             .take_while(|c| {
                                 if *c == MAIN_SEPARATOR {
                                     n += 1;
@@ -208,7 +209,8 @@ fn react_to_event(
                     } else {
                         let nsep = to.chars().filter(|c| *c == MAIN_SEPARATOR).count();
                         let mut n = 0;
-                        let parent = to.chars()
+                        let parent = to
+                            .chars()
                             .take_while(|c| {
                                 if *c == MAIN_SEPARATOR {
                                     n += 1;
