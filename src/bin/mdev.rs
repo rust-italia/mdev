@@ -1,10 +1,9 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
+use std::collections::{HashMap, BTreeMap};
+use std::ffi::OsStr;
 use std::fs::{create_dir_all, rename};
 use std::os::unix::fs::symlink;
-use std::os::unix::prelude::OsStrExt;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 
 use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
@@ -144,15 +143,15 @@ fn react_to_event(
                     devname
                 };
                 if let Some(old_on_creation) = on_creation {
-                    // this creates a collection of OsString:Ostring
+                    // this creates a sorted collection of usize:(String:String)
                     // because is lighter and quicker having matches already indexed
-                    // than converting to usize every OsStr that starts by %
+                    // than converting to usize every substring that starts by % and contains numbers
                     // the counterpart is that we allocate every match instead of keeping the reference to the original str
-                    let matches: HashMap<OsString, OsString> = device_regex
+                    let matches: BTreeMap<usize, (String, &str)> = device_regex
                         .regex
                         .find_iter(var)
                         .enumerate()
-                        .map(|(index, m)| (format!("%{}", index).into(), m.as_str().into()))
+                        .map(|(index, m)| (index, (format!("%{}", index), m.as_str())))
                         .collect();
                     if matches.is_empty() {
                         continue;
@@ -161,10 +160,10 @@ fn react_to_event(
                     let mut new_on_creation = old_on_creation.into_owned();
                     match &mut new_on_creation {
                         OnCreation::Move(pb) => {
-                            *pb = replace_in_pathbuf(pb, &matches);
+                            replace_in_path(pb, &matches);
                         }
                         OnCreation::SymLink(pb) => {
-                            *pb = replace_in_pathbuf(pb, &matches);
+                            replace_in_path(pb, &matches);
                         }
                         _ => {}
                     }
@@ -183,23 +182,41 @@ fn react_to_event(
         if let Some(creation) = on_creation.as_deref() {
             match creation {
                 OnCreation::Move(to) => {
-                    debug!("Rename {} to {}", devname, to.display());
+                    debug!("Rename {} to {}", devname, to);
                     let (dir, target) = if is_dir(to) {
-                        (to.as_path(), to.join(devname))
+                        (to.clone(), format!("{}{}", to, devname))
                     } else {
-                        // not sure about using "" as fallback
-                        (to.parent().unwrap_or_else(|| Path::new("")), to.clone())
+                        let nsep = to.chars().filter(|c| *c == MAIN_SEPARATOR).count();
+                        let mut n = 0;
+                        let parent = to.chars()
+                            .take_while(|c| {
+                                if *c == MAIN_SEPARATOR {
+                                    n += 1;
+                                }
+                                n < nsep
+                            })
+                            .collect();
+                        (parent, to.clone())
                     };
                     create_dir_all(devpath.join(dir))?;
                     rename(devpath.join(devname), devpath.join(target))?;
                 }
                 OnCreation::SymLink(to) => {
-                    debug!("Link {} to {}", devname, to.display());
+                    debug!("Link {} to {}", devname, to);
                     let (dir, target) = if is_dir(to) {
-                        (to.as_path(), to.join(devname))
+                        (to.clone(), format!("{}{}", to, devname))
                     } else {
-                        // not sure about using "" as fallback
-                        (to.parent().unwrap_or_else(|| Path::new("")), to.clone())
+                        let nsep = to.chars().filter(|c| *c == MAIN_SEPARATOR).count();
+                        let mut n = 0;
+                        let parent = to.chars()
+                            .take_while(|c| {
+                                if *c == MAIN_SEPARATOR {
+                                    n += 1;
+                                }
+                                n < nsep
+                            })
+                            .collect();
+                        (parent, to.clone())
                     };
                     create_dir_all(devpath.join(dir))?;
                     symlink(devpath.join(devname), devpath.join(target))?;
@@ -374,21 +391,19 @@ impl Opt {
     }
 }
 
-fn is_dir(path: &PathBuf) -> bool {
-    path.as_os_str().as_bytes().ends_with(&[b'/'])
+fn is_dir(path: &str) -> bool {
+    // is this check enough?
+    path.ends_with(MAIN_SEPARATOR)
 }
 
-fn replace_in_pathbuf(pb: &PathBuf, matches: &HashMap<OsString, OsString>) -> PathBuf {
-    pb.components()
-        .map(|c| {
-            if let Component::Normal(s) = c {
-                if let Some(m) = matches.get(s) {
-                    return Component::Normal(&m);
-                }
-            }
-            c
-        })
-        .collect()
+fn replace_in_path(pb: &mut String, matches: &BTreeMap<usize, (String, &str)>) {
+    // reverse iteration to go from highest number to lowest, therefore from longhest to shortest
+    // this way we replace %10 before %1
+    for (_, (key, value)) in matches.iter().rev() {
+        while let Some(pos) = pb.find(key) {
+            pb.replace_range(pos..(pos + key.len()), value);
+        }
+    }
 }
 
 fn run_hotplug(_conf: &[Conf]) -> anyhow::Result<()> {
