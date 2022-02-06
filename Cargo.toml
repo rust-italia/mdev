@@ -5,8 +5,7 @@ edition = "2018"
 description = "mini-udev workalike"
 
 [dependencies]
-#mdev-parser = "0.1"
-mdev-parser = { path = "../mdev-parser" }
+mdev-parser = "0.1"
 kobject-uevent = "0.1.0"
 anyhow = "1.0.53"
 structopt = "0.3.26"
@@ -20,5 +19,5 @@ walkdir = "2.3.2"
 nix = "0.23.1"
 
 [patch.crates-io]
-#mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }
+mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }
 kobject-uevent = { git = "https://github.com/rust-italia/kobject-uevent" }
