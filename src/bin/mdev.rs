@@ -314,8 +314,10 @@ impl Opt {
             None => reactor_fut.await,
         }
     }
+    #[tokio::main(flavor = "current_thread")]
     async fn run_scan(&self, conf: &[Conf]) -> anyhow::Result<()> {
         let mount_point = Path::new("/sys");
+        // WalkDir uses sync fs apis
         let walk = WalkDir::new(mount_point.join("dev"))
             .follow_links(true)
             .max_depth(3)
@@ -400,9 +402,8 @@ fn run_hotplug(_conf: &[Conf]) -> anyhow::Result<()> {
     unimplemented!()
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
-    let conf = if let Ok(input) = fs::read_to_string("/etc/mdev.conf").await {
+fn main() -> anyhow::Result<()> {
+    let conf = if let Ok(input) = std::fs::read_to_string("/etc/mdev.conf") {
         mdev_parser::parse(&input)
     } else {
         vec![Conf::default()]
@@ -417,13 +418,13 @@ async fn main() -> anyhow::Result<()> {
     opt.setup_log()?;
 
     if opt.scan {
-        opt.run_scan(&conf).await?;
+        opt.run_scan(&conf)?;
     }
 
     if opt.daemon {
         if !opt.foreground {
             if let Fork::Child = daemon(false, false).map_err(|_| anyhow::anyhow!("Cannot fork"))? {
-                opt.run_daemon(&conf)?
+                opt.run_daemon(&conf)?;
             }
         } else {
             opt.run_daemon(&conf)?;
