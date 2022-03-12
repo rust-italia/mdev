@@ -258,7 +258,7 @@ async fn react_to_event(
 }
 
 impl Opt {
-    #[tokio::main]
+    #[tokio::main(flavor = "current_thread")]
     async fn run_daemon(&self, conf: &[Conf]) -> anyhow::Result<()> {
         info!("mdev daemon starts");
 
