@@ -63,16 +63,6 @@ struct Opt {
     rebroadcast: bool,
 }
 
-// struct EventReactor<'a> {
-//     path: &'a Path,
-//     env: &'a HashMap<String, String>,
-//     action: ActionType,
-//     conf: &'a [Conf],
-//     devpath: &'a Path,
-//     devname: &'a str,
-//     device_number: Option<(u32, u32)>,
-// }
-
 async fn react_to_event(
     path: &Path,
     env: &HashMap<String, String>,
@@ -114,16 +104,6 @@ async fn react_to_event(
     } else {
         None
     };
-
-    // let reactor = EventReactor {
-    //     path,
-    //     env,
-    //     action,
-    //     conf,
-    //     devpath,
-    //     devname,
-    //     device_number,
-    // };
 
     for rule in conf {
         if !rule.envmatches.iter().all(|env_match| {
