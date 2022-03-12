@@ -1,15 +1,13 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
-use std::fs::{create_dir_all, rename};
-use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 
 use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
 use nix::sys::stat::{makedev, mknod, Mode, SFlag};
 use nix::unistd::unlink;
-use tokio::join;
+use tokio::{fs, join};
 use tracing::{debug, info, warn};
 
 use structopt::clap::AppSettings;
@@ -65,7 +63,17 @@ struct Opt {
     rebroadcast: bool,
 }
 
-fn react_to_event(
+// struct EventReactor<'a> {
+//     path: &'a Path,
+//     env: &'a HashMap<String, String>,
+//     action: ActionType,
+//     conf: &'a [Conf],
+//     devpath: &'a Path,
+//     devname: &'a str,
+//     device_number: Option<(u32, u32)>,
+// }
+
+async fn react_to_event(
     path: &Path,
     env: &HashMap<String, String>,
     action: ActionType,
@@ -73,15 +81,15 @@ fn react_to_event(
     devpath: &Path,
 ) -> anyhow::Result<()> {
     let in_sys = Path::new("/sys").join(path.strip_prefix("/")?);
-    let dev = std::fs::read_to_string(&in_sys.join("dev"));
-    let uevent = std::fs::read_to_string(&in_sys.join("uevent"));
+    let dev = fs::read_to_string(&in_sys.join("dev")).await.ok();
+    let uevent = fs::read_to_string(&in_sys.join("uevent")).await.ok();
 
     let devname = if let Some(devname) = env.get("DEVNAME") {
         devname
     } else {
-        if let Ok(ref uevent) = uevent {
+        if let Some(ref uevent) = uevent {
             uevent.lines().find_map(|line| {
-                if let Some((k, v)) = line.split_once("=") {
+                if let Some((k, v)) = line.split_once('=') {
                     if k == "DEVNAME" {
                         Some(v)
                     } else {
@@ -97,8 +105,8 @@ fn react_to_event(
         .unwrap_or_else(|| path.file_name().unwrap().to_str().unwrap())
     };
 
-    let device_number = if let Ok(ref dev) = dev {
-        if let Some((maj, min)) = dev.trim().split_once(":") {
+    let device_number = if let Some(ref dev) = dev {
+        if let Some((maj, min)) = dev.trim().split_once(':') {
             Some((maj.parse::<u32>()?, min.parse::<u32>()?))
         } else {
             None
@@ -106,6 +114,16 @@ fn react_to_event(
     } else {
         None
     };
+
+    // let reactor = EventReactor {
+    //     path,
+    //     env,
+    //     action,
+    //     conf,
+    //     devpath,
+    //     devname,
+    //     device_number,
+    // };
 
     for rule in conf {
         if !rule.envmatches.iter().all(|env_match| {
@@ -117,8 +135,7 @@ fn react_to_event(
         }
 
         // to avoid unneeded allocations
-        let mut on_creation: Option<Cow<OnCreation>> =
-            rule.on_creation.as_ref().map(|t| Cow::Borrowed(t));
+        let mut on_creation: Option<Cow<OnCreation>> = rule.on_creation.as_ref().map(Cow::Borrowed);
 
         match rule.filter {
             Filter::MajMin(ref device_number_match) => {
@@ -143,10 +160,10 @@ fn react_to_event(
                     devname
                 };
                 if let Some(old_on_creation) = on_creation {
-                    // this creates a sorted collection of usize:(String:String)
+                    // this creates a sorted collection of usize:(String:&str)
                     // because is lighter and quicker having matches already indexed
                     // than converting to usize every substring that starts by % and contains numbers
-                    // the counterpart is that we allocate every match instead of keeping the reference to the original str
+                    // the counterpart is that we allocate a string for every possible index
                     let matches: BTreeMap<usize, (String, &str)> = device_regex
                         .regex
                         .find_iter(var)
@@ -168,10 +185,8 @@ fn react_to_event(
                         _ => {}
                     }
                     on_creation = Some(Cow::Owned(new_on_creation));
-                } else {
-                    if !device_regex.regex.is_match(var) {
-                        continue;
-                    }
+                } else if !device_regex.regex.is_match(var) {
+                    continue;
                 }
             }
         }
@@ -181,8 +196,17 @@ fn react_to_event(
         // WARNING: WIP code
         if let Some(creation) = on_creation.as_deref() {
             match creation {
-                OnCreation::Move(to) => {
-                    debug!("Rename {} to {}", devname, to);
+                OnCreation::Move(to) | OnCreation::SymLink(to) => {
+                    debug!(
+                        "{} {} to {}",
+                        if let OnCreation::Move(_) = creation {
+                            "Rename"
+                        } else {
+                            "Link"
+                        },
+                        devname,
+                        to
+                    );
                     let (dir, target) = if is_dir(to) {
                         (to.clone(), format!("{}{}", to, devname))
                     } else {
@@ -199,29 +223,12 @@ fn react_to_event(
                             .collect();
                         (parent, to.clone())
                     };
-                    create_dir_all(devpath.join(dir))?;
-                    rename(devpath.join(devname), devpath.join(target))?;
-                }
-                OnCreation::SymLink(to) => {
-                    debug!("Link {} to {}", devname, to);
-                    let (dir, target) = if is_dir(to) {
-                        (to.clone(), format!("{}{}", to, devname))
+                    fs::create_dir_all(devpath.join(dir)).await?;
+                    if let OnCreation::Move(_) = creation {
+                        fs::rename(devpath.join(devname), devpath.join(target)).await?;
                     } else {
-                        let nsep = to.chars().filter(|c| *c == MAIN_SEPARATOR).count();
-                        let mut n = 0;
-                        let parent = to
-                            .chars()
-                            .take_while(|c| {
-                                if *c == MAIN_SEPARATOR {
-                                    n += 1;
-                                }
-                                n < nsep
-                            })
-                            .collect();
-                        (parent, to.clone())
-                    };
-                    create_dir_all(devpath.join(dir))?;
-                    symlink(devpath.join(devname), devpath.join(target))?;
+                        fs::symlink(devpath.join(devname), devpath.join(target)).await?;
+                    }
                 }
                 OnCreation::Prevent => {
                     debug!("Do not create node");
@@ -236,7 +243,7 @@ fn react_to_event(
         match action {
             ActionType::Add => {
                 if let Some((maj, min)) = device_number {
-                    create_dir_all(dev_full_dir)?;
+                    fs::create_dir_all(dev_full_dir).await?;
                     let kind = if path.iter().any(|v| v == OsStr::new("block")) {
                         SFlag::S_IFBLK
                     } else {
@@ -291,7 +298,8 @@ impl Opt {
                     info!("event {:?}", ev);
                     let result = ev.map(|ev| async {
                         let result =
-                            react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath);
+                            react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath)
+                                .await;
                         if let Some(rebroadcast_sender) = &rebroadcast_sender {
                             if rebroadcast_sender
                                 .send(RebroadcastMessage::Event(ev))
@@ -326,7 +334,7 @@ impl Opt {
             None => reactor_fut.await,
         }
     }
-    fn run_scan(&self, conf: &[Conf]) -> anyhow::Result<()> {
+    async fn run_scan(&self, conf: &[Conf]) -> anyhow::Result<()> {
         let mount_point = Path::new("/sys");
         let walk = WalkDir::new(mount_point.join("dev"))
             .follow_links(true)
@@ -352,7 +360,7 @@ impl Opt {
 
             let ev = UEvent::from_sysfs_path(path, &mount_point)?;
 
-            react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath)?;
+            react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath).await?;
         }
 
         Ok(())
@@ -399,7 +407,7 @@ fn is_dir(path: &str) -> bool {
 }
 
 fn replace_in_path(pb: &mut String, matches: &BTreeMap<usize, (String, &str)>) {
-    // reverse iteration to go from highest number to lowest, therefore from longhest to shortest
+    // reverse iteration to go from highest number to lowest, therefore from longest to shortest
     // this way we replace %10 before %1
     for (_, (key, value)) in matches.iter().rev() {
         while let Some(pos) = pb.find(key) {
@@ -412,8 +420,9 @@ fn run_hotplug(_conf: &[Conf]) -> anyhow::Result<()> {
     unimplemented!()
 }
 
-fn main() -> anyhow::Result<()> {
-    let conf = if let Ok(input) = std::fs::read_to_string("/etc/mdev.conf") {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> anyhow::Result<()> {
+    let conf = if let Ok(input) = fs::read_to_string("/etc/mdev.conf").await {
         mdev_parser::parse(&input)
     } else {
         vec![Conf::default()]
@@ -428,7 +437,7 @@ fn main() -> anyhow::Result<()> {
     opt.setup_log()?;
 
     if opt.scan {
-        opt.run_scan(&conf)?;
+        opt.run_scan(&conf).await?;
     }
 
     if opt.daemon {
