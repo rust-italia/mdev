@@ -362,16 +362,15 @@ impl Opt {
             todo!("Wire in syslog somehow");
         }
 
-        let filter_layer = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| {
-                if self.verbose < 1 {
-                    EnvFilter::new("info")
-                } else if self.verbose < 2 {
-                    EnvFilter::new("warn")
-                } else {
-                    EnvFilter::new("debug")
-                }
-            });
+        let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            if self.verbose < 1 {
+                EnvFilter::new("info")
+            } else if self.verbose < 2 {
+                EnvFilter::new("warn")
+            } else {
+                EnvFilter::new("debug")
+            }
+        });
 
         tracing_subscriber::registry()
             .with(filter_layer)
