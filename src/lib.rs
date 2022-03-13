@@ -11,6 +11,7 @@ use kobject_uevent::UEvent;
 use netlink_sys::{SocketAddr, TokioSocket};
 use tokio::sync::mpsc;
 
+pub mod rule;
 pub mod stream;
 
 #[must_use = "Rebroadcaster must be awaited in order to work"]
