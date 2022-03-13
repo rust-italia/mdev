@@ -62,7 +62,10 @@ pub async fn apply<'a>(
                     .regex
                     .find_iter(var)
                     .enumerate()
-                    .map(|(index, m)| (index, (format!("%{}", index), m.as_str())))
+                    .map(|(index, m)| {
+                        debug!("Match {}: {}", index + 1, m.as_str());
+                        (index + 1, (format!("%{}", index + 1), m.as_str()))
+                    })
                     .collect();
                 if matches.is_empty() {
                     return Ok(None);
@@ -70,11 +73,11 @@ pub async fn apply<'a>(
 
                 let mut new_on_creation = old_on_creation.into_owned();
                 match &mut new_on_creation {
-                    OnCreation::Move(pb) => {
-                        replace_in_path(pb, &matches);
+                    OnCreation::Move(s) => {
+                        replace_in_path(s, &matches);
                     }
-                    OnCreation::SymLink(pb) => {
-                        replace_in_path(pb, &matches);
+                    OnCreation::SymLink(s) => {
+                        replace_in_path(s, &matches);
                     }
                     _ => {}
                 }
@@ -117,11 +120,12 @@ pub async fn apply<'a>(
                         .collect();
                     (parent, to.clone())
                 };
-                fs::create_dir_all(devpath.join(dir)).await?;
+
                 if let OnCreation::Move(_) = creation {
                     // fs::rename(devpath.join(devname), devpath.join(target)).await?;
                     return Ok(Some(Cow::Owned(target)));
                 } else {
+                    fs::create_dir_all(devpath.join(dir)).await?;
                     fs::symlink(devpath.join(devname), devpath.join(target)).await?;
                 }
             }
@@ -156,7 +160,9 @@ mod tests {
 
     use kobject_uevent::ActionType;
 
-    use mdev_parser::{Conf, Filter, MajMin};
+    use mdev_parser::{Conf, DeviceRegex, Filter, MajMin, OnCreation};
+
+    use regex::Regex;
 
     #[tokio::test]
     async fn basic() {
@@ -181,6 +187,57 @@ mod tests {
                 .await
                 .unwrap(),
             Some(Cow::Borrowed("foo"))
+        );
+    }
+
+    #[tokio::test]
+    async fn on_creation() {
+        let conf = Conf {
+            stop: false,
+            envmatches: vec![],
+            filter: Filter::MajMin(MajMin {
+                maj: 0,
+                min: 1,
+                min2: None,
+            }),
+            user: String::from("root"),
+            group: String::from("root"),
+            mode: 0700,
+            on_creation: Some(OnCreation::Move(String::from("bar"))),
+            command: None,
+        };
+        let env = HashMap::new();
+        let devpath = Path::new("/dev");
+        assert_eq!(
+            super::apply(&conf, &env, None, ActionType::Add, &devpath, "foo")
+                .await
+                .unwrap(),
+            Some(Cow::Borrowed("bar"))
+        );
+    }
+
+    #[tokio::test]
+    async fn regex() {
+        let conf = Conf {
+            stop: false,
+            envmatches: vec![],
+            filter: Filter::DeviceRegex(DeviceRegex {
+                regex: Regex::new("\\w+").unwrap(),
+                envvar: None,
+            }),
+            user: String::from("root"),
+            group: String::from("root"),
+            mode: 0700,
+            on_creation: Some(OnCreation::Move(String::from("%2/%1"))),
+            command: None,
+        };
+        let env = HashMap::new();
+        let devpath = Path::new("/dev");
+        assert_eq!(
+            super::apply(&conf, &env, None, ActionType::Add, &devpath, "foo/bar")
+                .await
+                .unwrap(),
+            Some(Cow::Borrowed("bar/foo"))
         );
     }
 }
