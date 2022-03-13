@@ -160,7 +160,7 @@ mod tests {
 
     use kobject_uevent::ActionType;
 
-    use mdev_parser::{Conf, Filter, MajMin, OnCreation, DeviceRegex};
+    use mdev_parser::{Conf, DeviceRegex, Filter, MajMin, OnCreation};
 
     use regex::Regex;
 
