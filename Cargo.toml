@@ -18,6 +18,9 @@ fork = "0.1.19"
 walkdir = "2.3.2"
 nix = "0.23.1"
 
+[dev-dependencies]
+regex = "1.5.5"
+
 [patch.crates-io]
 mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }
 kobject-uevent = { git = "https://github.com/rust-italia/kobject-uevent" }
