@@ -1,23 +1,25 @@
-use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf, MAIN_SEPARATOR};
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
-use nix::sys::stat::{makedev, mknod, Mode, SFlag};
-use nix::unistd::unlink;
+use nix::{
+    sys::stat::{makedev, mknod, Mode, SFlag},
+    unistd::unlink,
+};
 use tokio::{fs, join};
 use tracing::{debug, info, warn};
 
-use structopt::clap::AppSettings;
-use structopt::StructOpt;
+use structopt::{clap::AppSettings, StructOpt};
 
 use futures_util::StreamExt;
 use walkdir::WalkDir;
 
-use mdev::{RebroadcastMessage, Rebroadcaster};
-use mdev_parser::{Conf, Filter, OnCreation};
+use mdev::{rule, RebroadcastMessage, Rebroadcaster};
+use mdev_parser::Conf;
 
 #[derive(StructOpt)]
 #[structopt(
@@ -74,7 +76,7 @@ async fn react_to_event(
     let dev = fs::read_to_string(&in_sys.join("dev")).await.ok();
     let uevent = fs::read_to_string(&in_sys.join("uevent")).await.ok();
 
-    let mut devname = Cow::Borrowed(if let Some(devname) = env.get("DEVNAME") {
+    let devname = if let Some(devname) = env.get("DEVNAME") {
         devname.as_str()
     } else {
         if let Some(ref uevent) = uevent {
@@ -94,7 +96,7 @@ async fn react_to_event(
         }
         // I don't like those unwraps
         .unwrap_or_else(|| path.file_name().unwrap().to_str().unwrap())
-    });
+    };
 
     let device_number = if let Some(ref dev) = dev {
         if let Some((maj, min)) = dev.trim().split_once(':') {
@@ -107,117 +109,13 @@ async fn react_to_event(
     };
 
     for rule in conf {
-        if !rule.envmatches.iter().all(|env_match| {
-            env.get(&env_match.envvar)
-                .map(|var| env_match.regex.is_match(var))
-                .unwrap_or(false)
-        }) {
+        let devname = if let Some(s) =
+            rule::apply(rule, env, device_number, action, devpath, devname).await?
+        {
+            s
+        } else {
             continue;
-        }
-
-        // to avoid unneeded allocations
-        let mut on_creation: Option<Cow<OnCreation>> = rule.on_creation.as_ref().map(Cow::Borrowed);
-
-        match rule.filter {
-            Filter::MajMin(ref device_number_match) => {
-                if let Some((maj, min)) = device_number {
-                    if maj != device_number_match.maj {
-                        continue;
-                    }
-                    let min2 = device_number_match.min2.unwrap_or(device_number_match.min);
-                    if min < device_number_match.min || min > min2 {
-                        continue;
-                    }
-                }
-            }
-            Filter::DeviceRegex(ref device_regex) => {
-                let var = if let Some(ref envvar) = device_regex.envvar {
-                    if let Some(var) = env.get(envvar) {
-                        var
-                    } else {
-                        continue;
-                    }
-                } else {
-                    devname.as_ref()
-                };
-                if let Some(old_on_creation) = on_creation {
-                    // this creates a sorted collection of usize:(String:&str)
-                    // because is lighter and quicker having matches already indexed
-                    // than converting to usize every substring that starts by % and contains numbers
-                    // the counterpart is that we allocate a string for every possible index
-                    let matches: BTreeMap<usize, (String, &str)> = device_regex
-                        .regex
-                        .find_iter(var)
-                        .enumerate()
-                        .map(|(index, m)| (index, (format!("%{}", index), m.as_str())))
-                        .collect();
-                    if matches.is_empty() {
-                        continue;
-                    }
-
-                    let mut new_on_creation = old_on_creation.into_owned();
-                    match &mut new_on_creation {
-                        OnCreation::Move(pb) => {
-                            replace_in_path(pb, &matches);
-                        }
-                        OnCreation::SymLink(pb) => {
-                            replace_in_path(pb, &matches);
-                        }
-                        _ => {}
-                    }
-                    on_creation = Some(Cow::Owned(new_on_creation));
-                } else if !device_regex.regex.is_match(var) {
-                    continue;
-                }
-            }
-        }
-
-        info!("rule matched {:?} action {:?}", rule, action);
-
-        // WARNING: WIP code
-        if let Some(creation) = on_creation.as_deref() {
-            match creation {
-                OnCreation::Move(to) | OnCreation::SymLink(to) => {
-                    debug!(
-                        "{} {} to {}",
-                        if let OnCreation::Move(_) = creation {
-                            "Rename"
-                        } else {
-                            "Link"
-                        },
-                        devname,
-                        to
-                    );
-                    let (dir, target) = if is_dir(to) {
-                        (to.clone(), format!("{}{}", to, devname))
-                    } else {
-                        let nsep = to.chars().filter(|c| *c == MAIN_SEPARATOR).count();
-                        let mut n = 0;
-                        let parent = to
-                            .chars()
-                            .take_while(|c| {
-                                if *c == MAIN_SEPARATOR {
-                                    n += 1;
-                                }
-                                n < nsep
-                            })
-                            .collect();
-                        (parent, to.clone())
-                    };
-                    fs::create_dir_all(devpath.join(dir)).await?;
-                    if let OnCreation::Move(_) = creation {
-                        // fs::rename(devpath.join(devname), devpath.join(target)).await?;
-                        devname = Cow::Owned(target);
-                    } else {
-                        fs::symlink(devpath.join(devname.as_ref()), devpath.join(target)).await?;
-                    }
-                }
-                OnCreation::Prevent => {
-                    debug!("Do not create node");
-                    continue;
-                }
-            }
-        }
+        };
 
         let dev_full_path = devpath.join(devname.as_ref());
         let dev_full_dir = dev_full_path.parent().unwrap();
@@ -380,21 +278,6 @@ impl Opt {
             .init();
 
         Ok(())
-    }
-}
-
-fn is_dir(path: &str) -> bool {
-    // is this check enough?
-    path.ends_with(MAIN_SEPARATOR)
-}
-
-fn replace_in_path(pb: &mut String, matches: &BTreeMap<usize, (String, &str)>) {
-    // reverse iteration to go from highest number to lowest, therefore from longest to shortest
-    // this way we replace %10 before %1
-    for (_, (key, value)) in matches.iter().rev() {
-        while let Some(pos) = pb.find(key) {
-            pb.replace_range(pos..(pos + key.len()), value);
-        }
     }
 }
 
