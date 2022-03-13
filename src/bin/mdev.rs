@@ -363,16 +363,15 @@ impl Opt {
         }
 
         let filter_layer = EnvFilter::try_from_default_env()
-            .or_else(|_| {
+            .unwrap_or_else(|_| {
                 if self.verbose < 1 {
-                    EnvFilter::try_new("info")
+                    EnvFilter::new("info")
                 } else if self.verbose < 2 {
-                    EnvFilter::try_new("warn")
+                    EnvFilter::new("warn")
                 } else {
-                    EnvFilter::try_new("debug")
+                    EnvFilter::new("debug")
                 }
-            })
-            .unwrap();
+            });
 
         tracing_subscriber::registry()
             .with(filter_layer)
