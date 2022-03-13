@@ -74,8 +74,8 @@ async fn react_to_event(
     let dev = fs::read_to_string(&in_sys.join("dev")).await.ok();
     let uevent = fs::read_to_string(&in_sys.join("uevent")).await.ok();
 
-    let devname = if let Some(devname) = env.get("DEVNAME") {
-        devname
+    let mut devname = Cow::Borrowed(if let Some(devname) = env.get("DEVNAME") {
+        devname.as_str()
     } else {
         if let Some(ref uevent) = uevent {
             uevent.lines().find_map(|line| {
@@ -92,8 +92,9 @@ async fn react_to_event(
         } else {
             None
         }
+        // I don't like those unwraps
         .unwrap_or_else(|| path.file_name().unwrap().to_str().unwrap())
-    };
+    });
 
     let device_number = if let Some(ref dev) = dev {
         if let Some((maj, min)) = dev.trim().split_once(':') {
@@ -137,7 +138,7 @@ async fn react_to_event(
                         continue;
                     }
                 } else {
-                    devname
+                    devname.as_ref()
                 };
                 if let Some(old_on_creation) = on_creation {
                     // this creates a sorted collection of usize:(String:&str)
@@ -205,9 +206,10 @@ async fn react_to_event(
                     };
                     fs::create_dir_all(devpath.join(dir)).await?;
                     if let OnCreation::Move(_) = creation {
-                        fs::rename(devpath.join(devname), devpath.join(target)).await?;
+                        // fs::rename(devpath.join(devname), devpath.join(target)).await?;
+                        devname = Cow::Owned(target);
                     } else {
-                        fs::symlink(devpath.join(devname), devpath.join(target)).await?;
+                        fs::symlink(devpath.join(devname.as_ref()), devpath.join(target)).await?;
                     }
                 }
                 OnCreation::Prevent => {
@@ -217,7 +219,7 @@ async fn react_to_event(
             }
         }
 
-        let dev_full_path = devpath.join(devname);
+        let dev_full_path = devpath.join(devname.as_ref());
         let dev_full_dir = dev_full_path.parent().unwrap();
 
         match action {
