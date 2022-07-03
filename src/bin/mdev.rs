@@ -4,11 +4,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::anyhow;
 use fork::{daemon, Fork};
 use kobject_uevent::{ActionType, UEvent};
 use nix::{
     sys::stat::{makedev, mknod, Mode, SFlag},
-    unistd::unlink,
+    unistd::{chown, unlink},
 };
 use tokio::{fs, join};
 use tracing::{debug, info, warn};
@@ -123,6 +124,13 @@ async fn react_to_event(
         match action {
             ActionType::Add => {
                 if let Some((maj, min)) = device_number {
+                    let uid = nix::unistd::User::from_name(&rule.user)?
+                        .ok_or_else(|| anyhow!("User {} does not exist", rule.user))?
+                        .uid;
+                    let gid = nix::unistd::Group::from_name(&rule.group)?
+                        .ok_or_else(|| anyhow!("Group {} does not exist", rule.group))?
+                        .gid;
+
                     fs::create_dir_all(dev_full_dir).await?;
                     let kind = if path.iter().any(|v| v == OsStr::new("block")) {
                         SFlag::S_IFBLK
@@ -138,6 +146,7 @@ async fn react_to_event(
                         dev_full_path, kind, mode, dev
                     );
                     mknod(&dev_full_path, kind, mode, dev)?;
+                    chown(&dev_full_path, Some(uid), Some(gid))?;
                 }
             }
             ActionType::Remove => {
