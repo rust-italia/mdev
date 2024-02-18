@@ -6,7 +6,9 @@ use futures_util::stream::{unfold, Stream};
 
 use kobject_uevent::UEvent;
 
-use netlink_sys::{protocols::NETLINK_KOBJECT_UEVENT, SocketAddr, TokioSocket};
+use netlink_sys::{
+    protocols::NETLINK_KOBJECT_UEVENT, AsyncSocket, AsyncSocketExt, SocketAddr, TokioSocket,
+};
 
 /// creates a new stream of UEvents
 pub fn uevents() -> anyhow::Result<impl Stream<Item = anyhow::Result<UEvent>>> {
@@ -14,25 +16,26 @@ pub fn uevents() -> anyhow::Result<impl Stream<Item = anyhow::Result<UEvent>>> {
         .map_err(|e| anyhow!("Socket open error: {}", e))?;
     let sa = SocketAddr::new(process::id(), 1);
     socket
+        .socket_mut()
         .bind(&sa)
         .map_err(|e| anyhow!("Socket bind error: {}", e))?;
 
     Ok(unfold(
-        (socket, vec![0; 1024 * 8]),
+        (socket, bytes::BytesMut::with_capacity(1024 * 8)),
         |(mut socket, mut buf)| async move {
-            let n = match socket.recv_from(&mut buf).await {
-                Ok((n, _addr)) => {
-                    if n == 0 {
+            buf.clear();
+            match socket.recv_from(&mut buf).await {
+                Ok(_addr) => {
+                    if buf.len() == 0 {
                         return None;
                     }
-                    n
                 }
                 Err(e) => {
                     return Some((Err(anyhow!("Socket receive error: {}", e)), (socket, buf)));
                 }
             };
 
-            Some((UEvent::from_netlink_packet(&buf[0..n]), (socket, buf)))
+            Some((UEvent::from_netlink_packet(&buf), (socket, buf)))
         },
     ))
 }

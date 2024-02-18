@@ -5,22 +5,19 @@ edition = "2018"
 description = "mini-udev workalike"
 
 [dependencies]
-mdev-parser = "0.1.0"
+mdev-parser = "0.1.1"
 kobject-uevent = "0.1.0"
 anyhow = "1.0.56"
 tracing = "0.1.32"
 tracing-subscriber = { version = "0.3.9", features = ["env-filter"] }
-netlink-sys = { version = "0.7.0", features = ["tokio_socket"] }#0.8.1 seems to be buggy
+netlink-sys = { version = "0.8.5", features = ["tokio_socket"] }
 futures-util = "0.3.21"
 tokio = { version = "1.17.0", features = ["macros", "rt-multi-thread", "sync", "fs"] }
 fork = "0.1.19"
 walkdir = "2.3.2"
 clap = { version = "4.5.1", features = ["derive", "wrap_help"] }
 nix = { version = "0.27.1", features = ["user", "fs"] }
+bytes = "1.5.0"
 
 [dev-dependencies]
 regex = "1.5.5"
-
-[patch.crates-io]
-mdev-parser = { git = "https://github.com/rust-italia/mdev-parser" }
-kobject-uevent = { git = "https://github.com/rust-italia/kobject-uevent" }

@@ -8,7 +8,7 @@ use std::{
 
 use futures_util::ready;
 use kobject_uevent::UEvent;
-use netlink_sys::{SocketAddr, TokioSocket};
+use netlink_sys::{AsyncSocket, SocketAddr, TokioSocket};
 use tokio::sync::mpsc;
 
 pub mod rule;
@@ -128,7 +128,7 @@ mod tests {
 
     use futures_util::{pin_mut, FutureExt};
     use kobject_uevent::ActionType;
-    use netlink_sys::constants::NETLINK_USERSOCK;
+    use netlink_sys::{constants::NETLINK_USERSOCK, AsyncSocketExt};
     use tokio::select;
 
     use super::*;
@@ -155,7 +155,7 @@ mod tests {
         let (rebroadcaster, sender) = Rebroadcaster::new(2).unwrap();
         let mut socket = TokioSocket::new(NETLINK_USERSOCK).unwrap();
         let socket_addr = SocketAddr::new(process::id(), 0);
-        socket.bind(&socket_addr).unwrap();
+        socket.socket_mut().bind(&socket_addr).unwrap();
 
         sender
             .send(RebroadcastMessage::Event(create_event()))
