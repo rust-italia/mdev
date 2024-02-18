@@ -8,7 +8,6 @@ description = "mini-udev workalike"
 mdev-parser = "0.1.0"
 kobject-uevent = "0.1.0"
 anyhow = "1.0.56"
-structopt = "0.3.26"
 tracing = "0.1.32"
 tracing-subscriber = { version = "0.3.9", features = ["env-filter"] }
 netlink-sys = { version = "0.7.0", features = ["tokio_socket"] }#0.8.1 seems to be buggy
@@ -16,7 +15,8 @@ futures-util = "0.3.21"
 tokio = { version = "1.17.0", features = ["macros", "rt-multi-thread", "sync", "fs"] }
 fork = "0.1.19"
 walkdir = "2.3.2"
-nix = "0.23.1"
+clap = { version = "4.5.1", features = ["derive", "wrap_help"] }
+nix = { version = "0.27.1", features = ["user", "fs"] }
 
 [dev-dependencies]
 regex = "1.5.5"
