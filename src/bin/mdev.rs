@@ -178,23 +178,26 @@ impl Opt {
             mdev::stream::uevents()?
                 .for_each(|ev| async {
                     info!("event {:?}", ev);
-                    let result = ev.map(|ev| async {
-                        let result =
-                            react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath)
-                                .await;
-                        if let Some(rebroadcast_sender) = &rebroadcast_sender {
-                            if rebroadcast_sender
-                                .send(RebroadcastMessage::Event(ev))
-                                .await
-                                .is_err()
+
+                    match ev {
+                        Ok(ev) => {
+                            if let Err(e) =
+                                react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath)
+                                    .await
                             {
-                                panic!("rebroadcaster channel is closed");
+                                warn!("{e}");
+                            }
+                            if let Some(rebroadcast_sender) = &rebroadcast_sender {
+                                if rebroadcast_sender
+                                    .send(RebroadcastMessage::Event(ev))
+                                    .await
+                                    .is_err()
+                                {
+                                    warn!("rebroadcaster channel is closed");
+                                }
                             }
                         }
-                        result
-                    });
-                    if let Err(e) = result {
-                        warn!("{}", e);
+                        Err(e) => warn!("{}", e),
                     }
                 })
                 .await;
