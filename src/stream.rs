@@ -1,11 +1,9 @@
 use std::process;
 
 use anyhow::anyhow;
-
-use futures_util::stream::{unfold, Stream};
-
+use async_stream::try_stream;
+use futures_util::Stream;
 use kobject_uevent::UEvent;
-
 use netlink_sys::{
     protocols::NETLINK_KOBJECT_UEVENT, AsyncSocket, AsyncSocketExt, SocketAddr, TokioSocket,
 };
@@ -20,22 +18,10 @@ pub fn uevents() -> anyhow::Result<impl Stream<Item = anyhow::Result<UEvent>>> {
         .bind(&sa)
         .map_err(|e| anyhow!("Socket bind error: {}", e))?;
 
-    Ok(unfold(
-        (socket, bytes::BytesMut::with_capacity(1024 * 8)),
-        |(mut socket, mut buf)| async move {
-            buf.clear();
-            match socket.recv_from(&mut buf).await {
-                Ok(_addr) => {
-                    if buf.len() == 0 {
-                        return None;
-                    }
-                }
-                Err(e) => {
-                    return Some((Err(anyhow!("Socket receive error: {}", e)), (socket, buf)));
-                }
-            };
-
-            Some((UEvent::from_netlink_packet(&buf), (socket, buf)))
-        },
-    ))
+    Ok(try_stream! {
+        loop {
+            let (buf, _sock) = socket.recv_from_full().await?;
+            yield UEvent::from_netlink_packet(&buf)?;
+        }
+    })
 }
