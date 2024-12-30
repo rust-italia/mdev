@@ -5,7 +5,9 @@ use std::{
 };
 
 use anyhow::anyhow;
+use clap::Parser;
 use fork::{daemon, Fork};
+use futures_util::StreamExt;
 use kobject_uevent::{ActionType, UEvent};
 use nix::{
     sys::stat::{makedev, mknod, Mode, SFlag},
@@ -13,10 +15,6 @@ use nix::{
 };
 use tokio::{fs, join};
 use tracing::{debug, info, warn};
-
-use clap::Parser;
-
-use futures_util::StreamExt;
 use walkdir::WalkDir;
 
 use mdev::{rule, RebroadcastMessage, Rebroadcaster};
@@ -244,7 +242,7 @@ impl Opt {
                 .ok_or_else(|| anyhow::anyhow!("Scanning an impossible path {:?}", e.path()))?;
             debug!("{:?}", path);
 
-            let ev = UEvent::from_sysfs_path(path, &mount_point)?;
+            let ev = UEvent::from_sysfs_path(path, mount_point)?;
 
             react_to_event(&ev.devpath, &ev.env, ev.action, conf, &self.devpath).await?;
         }

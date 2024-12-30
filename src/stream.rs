@@ -1,11 +1,8 @@
 use std::process;
 
 use anyhow::anyhow;
-
 use futures_util::stream::{unfold, Stream};
-
 use kobject_uevent::UEvent;
-
 use netlink_sys::{
     protocols::NETLINK_KOBJECT_UEVENT, AsyncSocket, AsyncSocketExt, SocketAddr, TokioSocket,
 };
@@ -26,7 +23,7 @@ pub fn uevents() -> anyhow::Result<impl Stream<Item = anyhow::Result<UEvent>>> {
             buf.clear();
             match socket.recv_from(&mut buf).await {
                 Ok(_addr) => {
-                    if buf.len() == 0 {
+                    if buf.is_empty() {
                         return None;
                     }
                 }

@@ -5,11 +5,8 @@ use std::{
 };
 
 use kobject_uevent::ActionType;
-
 use mdev_parser::{Conf, Filter, OnCreation};
-
 use tokio::fs;
-
 use tracing::{debug, info};
 
 pub async fn apply<'a>(
@@ -159,9 +156,7 @@ mod tests {
     use std::{borrow::Cow, collections::HashMap, path::Path};
 
     use kobject_uevent::ActionType;
-
     use mdev_parser::{Conf, DeviceRegex, Filter, MajMin, OnCreation};
-
     use regex::Regex;
 
     #[tokio::test]
@@ -176,14 +171,14 @@ mod tests {
             }),
             user: String::from("root"),
             group: String::from("root"),
-            mode: 0700,
+            mode: 0o700,
             on_creation: None,
             command: None,
         };
         let env = HashMap::new();
         let devpath = Path::new("/dev");
         assert_eq!(
-            super::apply(&conf, &env, None, ActionType::Add, &devpath, "foo")
+            super::apply(&conf, &env, None, ActionType::Add, devpath, "foo")
                 .await
                 .unwrap(),
             Some(Cow::Borrowed("foo"))
@@ -202,14 +197,14 @@ mod tests {
             }),
             user: String::from("root"),
             group: String::from("root"),
-            mode: 0700,
+            mode: 0o700,
             on_creation: Some(OnCreation::Move(String::from("bar"))),
             command: None,
         };
         let env = HashMap::new();
         let devpath = Path::new("/dev");
         assert_eq!(
-            super::apply(&conf, &env, None, ActionType::Add, &devpath, "foo")
+            super::apply(&conf, &env, None, ActionType::Add, devpath, "foo")
                 .await
                 .unwrap(),
             Some(Cow::Borrowed("bar"))
@@ -227,14 +222,14 @@ mod tests {
             }),
             user: String::from("root"),
             group: String::from("root"),
-            mode: 0700,
+            mode: 0o700,
             on_creation: Some(OnCreation::Move(String::from("%2/%1"))),
             command: None,
         };
         let env = HashMap::new();
         let devpath = Path::new("/dev");
         assert_eq!(
-            super::apply(&conf, &env, None, ActionType::Add, &devpath, "foo/bar")
+            super::apply(&conf, &env, None, ActionType::Add, devpath, "foo/bar")
                 .await
                 .unwrap(),
             Some(Cow::Borrowed("bar/foo"))
