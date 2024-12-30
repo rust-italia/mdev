@@ -17,7 +17,7 @@ use tokio::{fs, join};
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
-use mdev::{rule, RebroadcastMessage, Rebroadcaster};
+use mdev::{rule, setup_log, RebroadcastMessage, Rebroadcaster};
 use mdev_parser::Conf;
 
 #[derive(Parser)]
@@ -254,35 +254,15 @@ impl Opt {
     }
 
     fn setup_log(&self) -> anyhow::Result<()> {
-        use tracing_subscriber::prelude::*;
-        use tracing_subscriber::{fmt, EnvFilter};
-
         if self.daemon && !self.foreground && !self.syslog {
             return Ok(());
         }
-
-        let fmt_layer = fmt::layer().with_target(false);
 
         if self.syslog {
             todo!("Wire in syslog somehow");
         }
 
-        let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            if self.verbose < 1 {
-                EnvFilter::new("info")
-            } else if self.verbose < 2 {
-                EnvFilter::new("warn")
-            } else {
-                EnvFilter::new("debug")
-            }
-        });
-
-        tracing_subscriber::registry()
-            .with(filter_layer)
-            .with(fmt_layer)
-            .init();
-
-        Ok(())
+        setup_log(self.verbose)
     }
 }
 
