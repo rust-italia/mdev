@@ -254,15 +254,56 @@ impl Opt {
     }
 
     fn setup_log(&self) -> anyhow::Result<()> {
+        use tracing_subscriber::{fmt, prelude::*};
         if self.daemon && !self.foreground && !self.syslog {
             return Ok(());
         }
 
+        let registry = setup_log(self.verbose);
+        let fmt_layer = fmt::layer().with_target(false);
+
+        let mdev_log = Path::new("/dev/mdev.log");
+        let file_log = if mdev_log.is_file() {
+            let log = std::fs::OpenOptions::new().append(true).open(mdev_log)?;
+            let fmt_layer = fmt::layer()
+                .with_target(false)
+                .with_ansi(false)
+                .with_writer(log);
+            Some(fmt_layer)
+        } else {
+            None
+        };
+
+        let registry = registry.with(file_log);
+
         if self.syslog {
-            todo!("Wire in syslog somehow");
+            #[cfg(feature = "syslog")]
+            {
+                use std::ffi::CString;
+                use syslog_tracing::{Facility, Options, Syslog};
+                // SAFETY: They are strings that do not contain a null byte
+                let identity = std::env::args()
+                    .next()
+                    .map_or_else(|| CString::new("mdev"), |name| CString::new(name))
+                    .unwrap();
+                let syslog = Syslog::new(identity, Options::LOG_PID, Facility::Daemon).unwrap();
+                let fmt_layer = fmt_layer
+                    .with_level(false)
+                    .without_time()
+                    .with_writer(syslog);
+
+                registry.with(fmt_layer).init();
+            }
+            #[cfg(not(feature = "syslog"))]
+            {
+                registry.with(fmt_layer).init();
+                warn!("They syslog feature is disabled");
+            }
+        } else {
+            registry.with(fmt_layer).init();
         }
 
-        setup_log(self.verbose)
+        Ok(())
     }
 }
 

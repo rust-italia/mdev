@@ -17,15 +17,17 @@ struct Opt {
 }
 
 impl Opt {
-    fn setup_log(&self) -> anyhow::Result<()> {
-        setup_log(self.verbose)
+    fn setup_log(&self) {
+        use tracing_subscriber::{fmt, prelude::*};
+        let fmt_layer = fmt::layer().with_target(false);
+        setup_log(self.verbose).with(fmt_layer).init();
     }
 }
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
 
-    opt.setup_log()?;
+    opt.setup_log();
 
     let classdir = WalkDir::new(opt.sysfs_mount.join("class"))
         .follow_links(true)
