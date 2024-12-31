@@ -253,16 +253,41 @@ impl Opt {
         Ok(())
     }
 
-    fn setup_log(&self) -> anyhow::Result<()> {
+    fn setup_log(&self) {
+        use tracing_subscriber::{fmt, prelude::*};
         if self.daemon && !self.foreground && !self.syslog {
-            return Ok(());
+            return;
         }
+
+        let registry = setup_log(self.verbose);
+        let fmt_layer = fmt::layer().with_target(false);
 
         if self.syslog {
-            todo!("Wire in syslog somehow");
-        }
+            #[cfg(feature = "syslog")]
+            {
+                use std::ffi::CString;
+                use syslog_tracing::{Facility, Options, Syslog};
+                // SAFETY: They are strings that do not contain a null byte
+                let identity = std::env::args()
+                    .next()
+                    .map_or_else(|| CString::new("mdev"), |name| CString::new(name))
+                    .unwrap();
+                let syslog = Syslog::new(identity, Options::LOG_PID, Facility::Daemon).unwrap();
+                let fmt_layer = fmt_layer
+                    .with_level(false)
+                    .without_time()
+                    .with_writer(syslog);
 
-        setup_log(self.verbose)
+                registry.with(fmt_layer).init();
+            }
+            #[cfg(not(feature = "syslog"))]
+            {
+                registry.with(fmt_layer).init();
+                warn!("They syslog feature is disabled");
+            }
+        } else {
+            registry.with(fmt_layer).init();
+        }
     }
 }
 
@@ -283,7 +308,7 @@ fn main() -> anyhow::Result<()> {
 
     let opt = Opt::parse();
 
-    opt.setup_log()?;
+    opt.setup_log();
 
     if opt.scan {
         opt.run_scan(&conf)?;
