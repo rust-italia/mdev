@@ -10,6 +10,7 @@ use futures_util::ready;
 use kobject_uevent::UEvent;
 use netlink_sys::{AsyncSocket, SocketAddr, TokioSocket};
 use tokio::sync::mpsc;
+use tracing_subscriber::{layer::Layered, prelude::*, EnvFilter, Registry};
 
 pub mod rule;
 pub mod stream;
@@ -196,12 +197,7 @@ mod tests {
     }
 }
 
-pub fn setup_log(verbose: u8) -> anyhow::Result<()> {
-    use tracing_subscriber::prelude::*;
-    use tracing_subscriber::{fmt, EnvFilter};
-
-    let fmt_layer = fmt::layer().with_target(false);
-
+pub fn setup_log(verbose: u8) -> Layered<EnvFilter, Registry> {
     let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         if verbose < 1 {
             EnvFilter::new("info")
@@ -212,10 +208,5 @@ pub fn setup_log(verbose: u8) -> anyhow::Result<()> {
         }
     });
 
-    tracing_subscriber::registry()
-        .with(filter_layer)
-        .with(fmt_layer)
-        .init();
-
-    Ok(())
+    tracing_subscriber::registry().with(filter_layer)
 }

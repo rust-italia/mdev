@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    ffi::OsStr,
+    ffi::{CString, OsStr},
     path::{Path, PathBuf},
 };
 
@@ -13,6 +13,7 @@ use nix::{
     sys::stat::{makedev, mknod, Mode, SFlag},
     unistd::{chown, unlink},
 };
+use syslog_tracing::Syslog;
 use tokio::{fs, join};
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
@@ -253,16 +254,36 @@ impl Opt {
         Ok(())
     }
 
-    fn setup_log(&self) -> anyhow::Result<()> {
+    fn setup_log(&self) {
+        use tracing_subscriber::{fmt, prelude::*};
         if self.daemon && !self.foreground && !self.syslog {
-            return Ok(());
+            return;
         }
+
+        let registry = setup_log(self.verbose);
+        let fmt_layer = fmt::layer().with_target(false);
 
         if self.syslog {
-            todo!("Wire in syslog somehow");
-        }
+            // SAFETY: They are strings that do not contain a null byte
+            let identity = std::env::args()
+                .next()
+                .map_or_else(|| CString::new("mdev"), |name| CString::new(name))
+                .unwrap();
+            let syslog = Syslog::new(
+                identity,
+                syslog_tracing::Options::LOG_PID,
+                syslog_tracing::Facility::Daemon,
+            )
+            .unwrap();
+            let fmt_layer = fmt_layer
+                .with_level(false)
+                .without_time()
+                .with_writer(syslog);
 
-        setup_log(self.verbose)
+            registry.with(fmt_layer).init();
+        } else {
+            registry.with(fmt_layer).init();
+        }
     }
 }
 
@@ -283,7 +304,7 @@ fn main() -> anyhow::Result<()> {
 
     let opt = Opt::parse();
 
-    opt.setup_log()?;
+    opt.setup_log();
 
     if opt.scan {
         opt.run_scan(&conf)?;
