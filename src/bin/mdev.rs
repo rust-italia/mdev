@@ -254,14 +254,28 @@ impl Opt {
         Ok(())
     }
 
-    fn setup_log(&self) {
+    fn setup_log(&self) -> anyhow::Result<()> {
         use tracing_subscriber::{fmt, prelude::*};
         if self.daemon && !self.foreground && !self.syslog {
-            return;
+            return Ok(());
         }
 
         let registry = setup_log(self.verbose);
         let fmt_layer = fmt::layer().with_target(false);
+
+        let mdev_log = Path::new("/dev/mdev.log");
+        let file_log = if mdev_log.is_file() {
+            let log = std::fs::OpenOptions::new().append(true).open(mdev_log)?;
+            let fmt_layer = fmt::layer()
+                .with_target(false)
+                .with_ansi(false)
+                .with_writer(log);
+            Some(fmt_layer)
+        } else {
+            None
+        };
+
+        let registry = registry.with(file_log);
 
         if self.syslog {
             // SAFETY: They are strings that do not contain a null byte
@@ -284,6 +298,8 @@ impl Opt {
         } else {
             registry.with(fmt_layer).init();
         }
+
+        Ok(())
     }
 }
 
@@ -304,7 +320,7 @@ fn main() -> anyhow::Result<()> {
 
     let opt = Opt::parse();
 
-    opt.setup_log();
+    opt.setup_log()?;
 
     if opt.scan {
         opt.run_scan(&conf)?;
