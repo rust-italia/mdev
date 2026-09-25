@@ -2,28 +2,31 @@
 name = "mdev"
 version = "0.2.0"
 edition = "2021"
+rust-version = "1.85"
 description = "mini-udev workalike"
+repository = "https://github.com/rust-italia/mdev"
+default-run = "mdev"
 
 [dependencies]
-anyhow = "1.0.95"
-bytes = "1.9.0"
-clap = { version = "4.5.23", features = ["derive", "wrap_help"] }
-fork = "0.2.0"
-futures-util = "0.3.31"
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
+# fork 0.9+ requires Rust 1.88; keep the latest release compatible with our MSRV.
+fork = "0.8.0"
+futures-util = "0.3.34"
 kobject-uevent = "0.2.0"
 mdev-parser = "0.1.1"
-netlink-sys = { version = "0.8.7", features = ["tokio_socket"] }
-nix = { version = "0.29.0", features = ["user", "fs"] }
-thiserror = "2.0.9"
-tokio = { version = "1.42.0", features = [
+netlink-sys = { version = "0.9.0", features = ["tokio_socket"] }
+nix = { version = "0.31.3", features = ["user", "fs"] }
+thiserror = "2.0.21"
+tokio = { version = "1.53.1", features = [
     "macros",
     "rt-multi-thread",
     "sync",
     "fs",
 ] }
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 walkdir = "2.5.0"
 
 [dev-dependencies]
-regex = "1.11.1"
+regex = "1.13.1"
