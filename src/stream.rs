@@ -65,7 +65,7 @@ impl Stream for UEventsStream {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        if let Some(mut socket) = this.take_socket() {
+        if let Some(socket) = this.take_socket() {
             *this = Self::Future(Box::pin(async move {
                 let res = socket.recv_from_full().await.map(|(buf, _)| buf);
                 (socket, res)
