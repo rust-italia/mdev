@@ -122,6 +122,30 @@ impl fmt::Display for DisplayEvent<'_> {
     }
 }
 
+pub fn setup_log(verbose: u8) -> anyhow::Result<()> {
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    let fmt_layer = fmt::layer().with_target(false);
+
+    let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        if verbose < 1 {
+            EnvFilter::new("info")
+        } else if verbose < 2 {
+            EnvFilter::new("warn")
+        } else {
+            EnvFilter::new("debug")
+        }
+    });
+
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .init();
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::{path::PathBuf, process};
@@ -194,28 +218,4 @@ mod tests {
             create_event()
         );
     }
-}
-
-pub fn setup_log(verbose: u8) -> anyhow::Result<()> {
-    use tracing_subscriber::prelude::*;
-    use tracing_subscriber::{fmt, EnvFilter};
-
-    let fmt_layer = fmt::layer().with_target(false);
-
-    let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        if verbose < 1 {
-            EnvFilter::new("info")
-        } else if verbose < 2 {
-            EnvFilter::new("warn")
-        } else {
-            EnvFilter::new("debug")
-        }
-    });
-
-    tracing_subscriber::registry()
-        .with(filter_layer)
-        .with(fmt_layer)
-        .init();
-
-    Ok(())
 }
