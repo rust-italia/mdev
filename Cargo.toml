@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 description = "mini-udev workalike"
+license = "MIT"
 repository = "https://github.com/rust-italia/mdev"
 default-run = "mdev"
 
